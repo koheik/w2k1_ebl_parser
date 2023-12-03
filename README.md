@@ -1,6 +1,6 @@
 W2K-1 EBL Parser
 ==========================
-This W2K-1 EBL parser is based on Actisense® plug-in for OpenCPN developed by Steven Adler.
+This parser is based on Actisense® plug-in for OpenCPN developed by Steven Adler.
 You can find its original repository at...
 
 https://github.com/TwoCanPlugIn/ActisensePlugin
