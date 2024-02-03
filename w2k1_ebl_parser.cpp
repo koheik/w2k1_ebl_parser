@@ -25,6 +25,7 @@
 // Date: 6/1/2020
 // Version History: 
 // 1.0 Initial Release
+// #define DEBUG
 
 #include <vector>
 #include <fstream>
@@ -83,7 +84,7 @@ static bool isSynced;
 static long offset;
 static double cog;
 static double sog;
-static double awd;
+static double awa;
 static double aws;
 
 void reset() {
@@ -94,7 +95,7 @@ void reset() {
     offset = 0;
     cog = 0.0;
     sog = 0.0;
-    awd = 0.0;
+    awa = 0.0;
     aws = 0.0;
 }
 
@@ -147,7 +148,11 @@ bool DecodePGN129026(std::vector<byte> payload, double &cog, double &sog) {
 		
         if (IsDataValid(courseOverGround) && IsDataValid(speedOverGround)) {
             cog = (float)courseOverGround / 10000;
-            sog = (float)speedOverGround/ 100;
+            sog = (float)speedOverGround / 100;
+
+#ifdef DEBUG
+            printf("update: ref=%d, cog=%f, sog=%f\n", headingReference, RADIANS_TO_DEGREES(cog), sog);
+#endif
             return TRUE;
         }
 	}
@@ -157,7 +162,7 @@ bool DecodePGN129026(std::vector<byte> payload, double &cog, double &sog) {
 
 // Decode PGN 130306 NMEA Wind
 // $--MWV,x.x,a,x.x,a,A*hh<CR><LF>
-bool DecodePGN130306(std::vector<byte> payload, double &awd, double &aws) {
+bool DecodePGN130306(std::vector<byte> payload, double &awa, double &aws) {
 	if (payload.size() > 0) {
 
 		byte sid;
@@ -173,8 +178,12 @@ bool DecodePGN130306(std::vector<byte> payload, double &awd, double &aws) {
 		windReference = (payload[5] & 0x07);
 
         if (IsDataValid(windAngle) && IsDataValid(windSpeed)) {
-            awd = (float)windAngle / 10000;
+            awa = (float)windAngle / 10000;
             aws = (double)windSpeed / 100;
+
+#ifdef DEBUG
+            printf("update: ref=%d, angle=%f, speed=%f\n", windReference, RADIANS_TO_DEGREES(awa), aws);
+#endif
             return TRUE;
         }
 	}
@@ -195,8 +204,8 @@ void correction(double &cog, double &sog, double &awd, double &aws, double &twd,
     double ax = aws * std::sin(awd);
     double ay = aws * std::cos(awd);
 
-    double tx = ax + vx;
-    double ty = ay + vy;
+    double tx = ax - vx;
+    double ty = ay - vy;
 
     tws = std::sqrt(tx * tx + ty * ty);
     if (tws > 0) {
@@ -218,7 +227,6 @@ void process(std::vector<byte> assemblyBuffer) {
     std::vector<byte> payload;
     std::vector<std::string> nmeaSentences;
 
-// #define DEBUGX 1
 #ifdef DEBUGX
     for (int i = 0; i < assemblyBuffer.size(); i++) {
         printf(" %02X", assemblyBuffer.at(i));
@@ -271,21 +279,25 @@ void process(std::vector<byte> assemblyBuffer) {
             for (int i = 9; i < 17; i++)
                 payload.push_back(assemblyBuffer.at(i));
 
-            if (isSynced && DecodePGN130306(payload, awd, aws)) {
+            if (isSynced && DecodePGN130306(payload, awa, aws)) {
                 double twd, tws;
+                double awd = awa + cog;
+                while (awd > 2 * M_PI) {
+                    awd -= 2 * M_PI;
+                }
                 correction(cog, sog, awd, aws, twd, tws);
-                // printf("cog=%f, sog=%f\n", RADIANS_TO_DEGREES(cog), sog);
-                // printf("awd=%f, aws=%f\n", RADIANS_TO_DEGREES(awd), aws);
-                // printf("twd=%f, tws=%f\n", RADIANS_TO_DEGREES(twd), tws);
-
+#ifdef DEBUG
+                printf("cog=%f, sog=%f\n", RADIANS_TO_DEGREES(cog), sog);
+                printf("awa=%f, awd=%f, aws=%f\n", RADIANS_TO_DEGREES(awa), RADIANS_TO_DEGREES(awd), aws);
+                printf("twd=%f, tws=%f\n", RADIANS_TO_DEGREES(twd), tws);
+#endif
                 time_t t = (offset + 10 * (roll * 65536L + ts)) / 10000;
                 std::cout << std::put_time(std::gmtime(&t), "%Y-%m-%dT%H:%M:%SZ");
                 std::cout << ",";
-                 std::cout << RADIANS_TO_DEGREES(twd);
+                std::cout << RADIANS_TO_DEGREES(twd);
                 std::cout << ",";
-                std::cout << tws;
+                std::cout << CONVERT_MS_KNOTS * tws;
                 std::cout << std::endl;
-
             }
         }
     }
@@ -321,7 +333,7 @@ void read(std::string fname)
 
             unsigned char ch = readBuffer.at(i);
 
-#ifdef DEBUG
+#ifdef DEBUGX
             printf(" %02X |", ch);
             for (int j = 0; j < assemblyBuffer.size(); j++)
                 printf(" %02X", assemblyBuffer.at(j));
